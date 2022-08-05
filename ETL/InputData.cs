@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json;
 
 namespace ETL;
 
@@ -63,20 +64,19 @@ public class InputData
 
 public class FileReader
 {
-    private readonly FileSaver _fileSaver;
+    private readonly string _filePath;
     private int _parsedLines;
     private int _foundErrors;
-    private string _filePath = String.Empty;
-    public FileReader()
+    public FileReader(string filePath)
     {
-        _fileSaver = new FileSaver();
+        _filePath = filePath;
     }
 
-    public async Task<List<InputData?>> ReadFileAsync(string filePath)
+    public async Task<List<InputData?>> ReadFileAsync()
     {
         var list = new ConcurrentBag<InputData?>();
-        var skipHeader = filePath.EndsWith("csv");
-        using (var reader = new StreamReader(filePath))
+        var skipHeader = _filePath.EndsWith("csv");
+        using (var reader = new StreamReader(_filePath))
         {
             while (!reader.EndOfStream)
             {
@@ -92,63 +92,97 @@ public class FileReader
                 {
                     _foundErrors++;
                 }
-                     
             }
         }
         return list.ToList();
     }
-
-    public MetaLog GetMetaLog()
-    {
-        var log = new MetaLog();
-        log.FoundErrors += _foundErrors;
-        log.ParsedLines += _parsedLines;
-        log.FilePaths = _filePath;
-        return log;
-    }
+    
+    public (int, int,string) GetLogs() => (_foundErrors, _parsedLines,_filePath);
 }
 
 public class MetaLog
 {
-    
-    public int ParsedLines { get; set; }
-    public int FoundErrors { get; set; }
-    public string FilePaths { get; set; } = String.Empty;
-}
-public class DirectoryReader
-{
-    public async Task<List<InputData?>> ReadAsync(string directoryPath)
+    private int ParsedLines { get; set; }
+    private int ParsedFiles { get; set; }
+    private int FoundErrors { get; set; }
+    private List<string> FilePaths { get; set; } = new();
+    public void Log(string filePath, int errors, int parsedLines)
     {
-        var fileImporter = new FileImporter();
-        var filesPath = Directory.GetFiles(directoryPath);
-        var fileReader = new FileReader();
-        var input = (await Task.WhenAll(filesPath.Select(x => fileReader.ReadFileAsync(x))))
-            .SelectMany(s => s).ToList();
-        return input;
+        FilePaths.Add(filePath);
+        FoundErrors += errors;
+        ParsedLines += parsedLines;
+        ParsedFiles++;
     }
 
-    private async Task<FileImporter> ReadFileWithLog(string filePath)
+    public override string ToString()
     {
-        var fileReader = new FileReader();
-        var fileImporter = new FileImporter();
-        fileImporter.InputDatas = await fileReader.ReadFileAsync(filePath);
-        fileImporter.MetaLog = fileReader.GetMetaLog();
-        return fileImporter;
+        return $"parsed_files: {ParsedFiles}\nparsed_lines: {ParsedLines}\nfound_errors: {FoundErrors}\ninvalid_files:[{String.Join(",",FilePaths)}]";
+    }
+}
+
+public class FileSaver
+{
+    private readonly string _fileName;
+    private readonly string _folderName = $@"..\..\..\folder_b\{DateTime.Now.ToString("dd-MM-yyyy")}";
+    public FileSaver(string fileName)
+    {
+        _fileName = fileName;
+  
+    }
+
+    public async Task SaveFileAsync(IEnumerable<OutputData> data)
+    {
+        if (!Directory.Exists(_folderName))
+            Directory.CreateDirectory(_folderName);
+        using (var writer = new StreamWriter($@"{_folderName}\{_fileName}") ?? throw new Exception())
+        {
+            await writer.WriteLineAsync(JsonConvert.SerializeObject(data));
+        }
+    }
+}
+
+
+public class DirectoryReader
+{
+    private  int _filesNumber = 1;
+    public async Task ReadAsync(string directoryPath)
+    {
+        await Task.WhenAll(Directory.GetFiles(directoryPath)
+            .Select(async x => await new FileImporter(new FileSaver($"output{_filesNumber++}.json"), new FileReader(x))
+                .ReadAndWriteAsync()));
     }
 }
 
 public class FileImporter
 {
-    public List<InputData?> InputDatas { get; set; } = new();
-    public MetaLog MetaLog { get; set; } = new();
-}
-public class FileSaver
-{
-    public async Task SaveFileAsync(string filePath,string line)
+    private readonly FileSaver _fileSaver;
+    private readonly FileReader _fileReader;
+    private readonly LogSaver _logSaver = new();
+
+    public FileImporter(FileSaver fileSaver, FileReader fileReader)
     {
-        using (var writer = new StreamWriter(filePath))
+        _fileSaver = fileSaver;
+        _fileReader = fileReader;
+    }
+
+    public async Task ReadAndWriteAsync()
+    {
+        var inputs = await _fileReader.ReadFileAsync();
+        (int lines, int errors, string filePath) = _fileReader.GetLogs();
+        await _fileSaver.SaveFileAsync(OutputData.Map(inputs));
+        await _logSaver.LogAsync($@"..\..\..\folder_b\{DateTime.Now.ToString("dd-MM-yyyy")}", lines,errors,filePath);
+    }
+}
+
+public class LogSaver
+{
+    private readonly MetaLog _log = new();
+    public async Task LogAsync(string folderPath,int lines, int errors, string filePath)
+    {
+        _log.Log(filePath,errors,lines);
+        using (var writter = new StreamWriter($@"{folderPath}\meta.log",false))
         {
-            await writer.WriteLineAsync(line);
+            await writter.WriteLineAsync(_log.ToString());
         }
     }
 }

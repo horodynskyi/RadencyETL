@@ -1,4 +1,5 @@
 ﻿using System.Text.Json.Serialization;
+using Newtonsoft.Json;
 
 namespace ETL;
 
@@ -8,32 +9,32 @@ public class OutputData
     public List<Service> Services { get; set; } = new();
     public decimal Total { get; set; }
 
-    public static OutputData Map(List<InputData>? inputData)
+    public static List<OutputData> Map(List<InputData>? inputData)
     {
         if (inputData.Count == 0)
-            return new OutputData();
-        var data = new OutputData();
-        data.City = inputData.First().City;
-        data.Services = inputData
-            .DistinctBy(x => x.ServiceName)
-            .Select(x => new Service
-        {
-            Name = x.ServiceName,
-            Payers = inputData
-                .Where(s => s.ServiceName == x.ServiceName)
-                .Select(p => new Payer
-                {
-                    Date = p.Date,
-                    Name = $"{p.FirstName} {p.SecondName}",
-                    Payment = p.Payment,
-                    AccountNumber = p.AccountNumber
-                }).ToList(),
-            Total = inputData
-                .Where(s => s.ServiceName == x.ServiceName)
-                .Sum(pay => pay.Payment)
-        }).ToList();
-        data.Total = data.Services.Sum(x => x.Total);
-        return data;
+            return new List<OutputData>();
+        var listData = inputData
+            .GroupBy(x => x.City)
+            .Select(grp => new OutputData()
+            {
+                City = grp.Key,
+                Services = grp
+                    .GroupBy(s => s.ServiceName)
+                    .Select(sGroup => new Service
+                    {
+                        Name = sGroup.Key,
+                        Payers = sGroup.Select(s => new Payer()
+                        {
+                            Date = s.Date,
+                            Name = $"{s.FirstName} {s.SecondName}",
+                            Payment = s.Payment,
+                            AccountNumber = s.AccountNumber
+                        }).ToList(),
+                        Total = sGroup.Sum(p => p.Payment)
+                    }).ToList(),
+                Total = grp.Sum(p => p.Payment)
+            }).ToList();
+        return listData;
     }
 }
 
@@ -49,6 +50,6 @@ public class Payer
     public string Name { get; set; } = String.Empty;
     public decimal Payment { get; set; }
     public DateTime Date { get; set; }
-    [JsonPropertyName("account_number")]
+    [JsonProperty("account_number")]
     public long AccountNumber { get; set; }
 }
