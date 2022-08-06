@@ -1,14 +1,26 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
-using System.Globalization;
-using System.Text.RegularExpressions;
+
 using ETL;
-using Newtonsoft.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Radency.ConsoleApp;
 
-var line = "John, Doe, “Lviv, Kleparivska 35, 4”,  500.0, 2022-27-01, 1234567, Water";
-var dir = AppDomain.CurrentDomain;
-
-var directoryReader = new DirectoryReader();
-var input = await directoryReader.ReadAsync(@"C:\Users\User\RiderProjects\Radency.ConsoleApp\Radency.ConsoleApp\folder_a");
-var output = OutputData.Map(input);
-Console.WriteLine(JsonConvert.SerializeObject(output));
+var host = Host.CreateDefaultBuilder()
+    .ConfigureServices((hostContext,services) =>
+    {
+        services.AddHostedService<Worker>();
+        services.Configure<AppSettings>(hostContext.Configuration.GetSection("AppSettings"));
+        services.AddTransient(ser =>
+        {
+            var appSettings = ser.GetRequiredService<IOptions<AppSettings>>().Value;
+            if (appSettings is null || string.IsNullOrEmpty(appSettings.InputFolderPath) || string.IsNullOrEmpty(appSettings.OutputFolderPath))
+                throw new ConfigSettingsIsEmptyException();
+            return appSettings;
+        });
+        
+        services.AddEtl();
+    })
+    .Build();
+await host.RunAsync();
