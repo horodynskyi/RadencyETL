@@ -9,7 +9,7 @@ public class OutputData
     public List<Service> Services { get; set; } = new();
     public decimal Total { get; set; }
 
-    public static List<OutputData> Map(List<InputData>? inputData)
+    public static List<OutputData> Map(List<InputData> inputData)
     {
         if (inputData.Count == 0)
             return new List<OutputData>();
