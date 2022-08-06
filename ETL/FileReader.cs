@@ -20,9 +20,12 @@ public class FileReader
         {
             while (!reader.EndOfStream)
             {
-                if(skipHeader)
-                    continue;
                 var line = await reader.ReadLineAsync();
+                if (skipHeader)
+                {
+                    skipHeader = false;
+                    continue;
+                }
                 _parsedLines++;
                 if (line == null) continue;
                 if (InputData.TryParse(line, out var inputData))
